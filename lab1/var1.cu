@@ -52,7 +52,7 @@ __global__ void f_addmat( float *A, float *B, float *C, int nx, int ny ){
 	int idx = iy*nx + ix ;
 	if( (ix<nx) && (iy<ny) )
 	C[idx] = A[idx] + B[idx] ;
-	if (idx == 0) printf("the addition in device: %.6f + %.6f = %.6f\n",A[idx],B[idx],C[idx]);
+	//if (idx == 0) printf("the addition in device: %.6f + %.6f = %.6f\n",A[idx],B[idx],C[idx]);
 }
 
 void initData(float* add, int noElems){
@@ -129,7 +129,7 @@ int main(int argc, char* argv[]){
 	else{
 		block_x = 1024;
 	}
-	#ifdef DEBUG
+#ifdef DEBUG
 	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
 	printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
 #endif
@@ -163,10 +163,10 @@ int main(int argc, char* argv[]){
 			printf("the two results don't match\n");
 	}
 	else{
-		printf("totoal time = %.6f\n",timeStampD - timeStampA );
-		printf("CPU_GPU_transfer_time = %.6f\n",timeStampB - timeStampA );
-		printf("kernel_time = %.6f\n",timeStampC - timeStampB );
-		printf("GPU_CPU_transfer_time = %.6f\n",timeStampD - timeStampC );
+		printf("totoal= %.6f CPU_GPU_transfer = %.6f kernel =%.6f GPU_CPU_transfer= %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
+		//printf("CPU_GPU_transfer_time = %.6f\n",timeStampB - timeStampA );
+		//printf("kernel_time = %.6f\n",timeStampC - timeStampB );
+		//printf("GPU_CPU_transfer_time = %.6f\n",timeStampD - timeStampC );
 	}
 
 	cudaFreeHost(h_hC);
