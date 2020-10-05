@@ -12,21 +12,17 @@ double getTimeStamp() {
 // host side matrix addition
 void h_addmat(float *A, float *B, float *C, int nx, int ny){ 
 	float* ia = A, *ib =B, *ic =C;
-	for (int iy =0; iy<ny - 1; iy++){
-		if(iy == ny - 1) ic[0] = ia[0] + ib[0];
-		else{
-			for (int ix =0; ix<nx; ix++){
-				
-				ic[ix] = ia[ix] + ib[ix];
-				//if (iy*nx + ix == 0) printf("the addition at index 0 in host: %.6f + %.6f = %.6f\n",ia[ix],ib[ix],ic[ix]);
-				
-			}
-			ia += nx;
-			ib += nx;
-			ic += nx;
+	for (int iy =0; iy<ny; iy++){
+		for (int ix =0; ix<nx; ix++){
+			
+			ic[ix] = ia[ix] + ib[ix];
+			//if (iy*nx + ix == 67133440) printf("the addition in host: %.6f + %.6f = %.6f\n",ia[ix],ib[ix],ic[ix]);
+			
 		}
+		ia += nx;
+		ib += nx;
+		ic += nx;
 	}
-	
  }
 //host side matrix comparison
 int h_compareResult(float *h_C, float *d_C, int noElems){ 
@@ -54,13 +50,9 @@ __global__ void f_addmat( float *A, float *B, float *C, int nx, int ny ){
 	int ix = threadIdx.x + blockIdx.x*blockDim.x ;
 	int iy = threadIdx.y + blockIdx.y*blockDim.y ;
 	int idx = iy*nx + ix ;
-	
 	if( (ix<nx) && (iy<ny) )
-	C[idx+1] = A[idx+1] + B[idx+1] ;
-#ifdef DEBUG
-	if (idx == 1) printf("the addition when idenx = %d in device: %.6f + %.6f = %.6f\n",idx,A[idx],B[idx],C[idx]);
-	if (idx%10001 == 0)printf("the addition when idenx = %d in device: %.6f + %.6f = %.6f\n",idx,A[idx],B[idx],C[idx]);
-#endif
+	C[idx] = A[idx] + B[idx] ;
+	//if (idx == 0) printf("the addition in device: %.6f + %.6f = %.6f\n",A[idx],B[idx],C[idx]);
 }
 
 void initData(float* add, int noElems){
@@ -68,7 +60,6 @@ void initData(float* add, int noElems){
 	float a = 5.0;
 	for (i=0; i< noElems; i++){
 		*(add++) = ((float)rand()/(float)(RAND_MAX)) * a;
-		//*(add++) = (float)i;
 	}
 
 }
@@ -95,65 +86,71 @@ int main(int argc, char* argv[]){
 
 
 	// alloc memeory host-side
-	float *h_A = (float*) malloc(bytes);
-	float *h_B = (float*) malloc(bytes);
-	float *h_dC = (float*) malloc(bytes);	 //gpu result
+	float *h_A;
+	float *h_B;
+	float *h_dC;// = (float*) malloc(bytes);	 //gpu result
 	float *h_hC = (float*) malloc(bytes); // host result
 	//float *h_dC;
-	//cudaHostAlloc(&h_dC, bytes, 0);	
-
-
+	cudaHostAlloc((void**)&h_A, bytes, 0);	
+	cudaHostAlloc((void**)&h_B, bytes, 0);	
+	cudaMallocHost((void**)&h_dC, bytes);	
 	// init matrices with random data
 	initData(h_A, noElems);
 	initData(h_B, noElems);
 
 	//alloc memeory device-side
 	float *d_A, *d_B, *d_C;
-	cudaMalloc( &d_A, bytes+sizeof(float));
-	cudaMalloc( &d_B, bytes+sizeof(float));
-	cudaMalloc( &d_C, bytes+sizeof(float));
-
-	double timeStampA = getTimeStamp() ;
-
+	cudaMalloc( &d_A, bytes);
+	cudaMalloc( &d_B, bytes);
+	cudaMalloc( &d_C, bytes);
+	// check result
+	h_addmat( h_A, h_B, h_hC, nx, ny ) ;
 	
-	//printf("the first element of A in device is %.6f\n", (d_A));
-/*
-	float *d_A_offset, *d_B_offset;
-	d_A_offset = d_A;
-	d_B_offset = d_B;
-	d_A_offset++;
-	d_B_offset++;
-*/	
-	//transfer data to dev
-	cudaMemcpy( (d_A+1), h_A, bytes, cudaMemcpyHostToDevice) ;
-	cudaMemcpy( (d_B+1), h_B, bytes, cudaMemcpyHostToDevice) ;
-	// note that the transfers would be twice as fast if h_A and h_B
-	// matrices are pinned
-	//printf("the first element of A in device is %.6f\n", *(d_A_offset));
-
-	double timeStampB = getTimeStamp() ;
-	ny ++; //adding ny for the extra element.
-	// invoke Kernel
-	int block_x, block_y = 1;
+	//computing minimal dimension of block size y according to the spec
+	int min_blocky = 1;
+	while ((ny + min_blocky-1)/min_blocky > 65535){
+		min_blocky ++;
+	}
+	int block_x, block_y = min_blocky;
 	if (nx < 1024){
-		
+		// if input nx is smaller than 1024		
 		block_x = nx;
-		while ((ny + block_y-1)/block_y > 65535){
-			block_y ++;
-		}
-		while (block_x * block_y > 1024){
+		
+		while (block_x > 32 && block_x %32 !=0){
+			// make the block_x in multiple of 32 (warp size)
 			block_x --;
-		}
+		}		
 	}
 	else{
 		block_x = 1024;
+
 	}
-#ifdef DEBUG
+
+	while (block_x * block_y > 1024){
+		// check if the total number of thread in a block exceed 1024 or not, if yes, subtract block x by 32
+		if (block_x -32 > 0) block_x = block_x - 32;
+		else block_x --;
+	}
 	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
 	printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
-#endif
-	dim3 block( block_x, block_y ) ; // you will want to configure this
+	double timeStampA = getTimeStamp() ;
+	
+	//transfer data to dev
+	cudaMemcpy( d_A, h_A, bytes, cudaMemcpyHostToDevice) ;
+	cudaMemcpy( d_B, h_B, bytes, cudaMemcpyHostToDevice) ;
+	// note that the transfers would be twice as fast if h_A and h_B
+
+	double timeStampB = getTimeStamp() ;
+
+	// invoke Kernel
+
+
+	dim3 block( block_x, min_blocky ) ; // you will want to configure this
 	dim3 grid( (nx + block.x-1)/block.x, (ny + block.y-1)/block.y ) ;
+#ifdef DEBUG
+	printf("the final block size is x = %d and y = %d \n",block.x, block.y);
+	printf("the final grid dimension is x = %d and y = %d \n",(nx + block.x-1)/block.x, (ny + block.y-1)/block.y);
+#endif
 	f_addmat<<<grid, block>>>( d_A, d_B, d_C, nx, ny ) ;
 
 	cudaDeviceSynchronize() ;
@@ -161,16 +158,19 @@ int main(int argc, char* argv[]){
 	double timeStampC = getTimeStamp() ;
 
 	//copy data back
-	cudaMemcpy( h_dC, (d_C+1), bytes, cudaMemcpyDeviceToHost ) ;
+	printf("before copy back\n");
+	cudaMemcpy( h_dC, d_C, bytes, cudaMemcpyDeviceToHost ) ;
+	printf("after copy back\n");
 	double timeStampD = getTimeStamp() ;
 	// free GPU resources
 	cudaFree( d_A ) ; cudaFree( d_B ) ; cudaFree( d_C ) ;
-	cudaDeviceReset() ;
-	// check result
-	h_addmat( h_A, h_B, h_hC, nx, ny ) ;
+
+
+	//cudaDeviceReset() ;
+
+
 	// h_dC == h+hC???
-	free(h_A);
-	free(h_B);
+
 #ifdef DEBUG
 	float *ptr;
 	ptr = h_dC;
@@ -178,7 +178,6 @@ int main(int argc, char* argv[]){
 	ptr = ptr + n;
 	printf("the data of GPU at index %d before comparison is %.6f\n", n,*(ptr));
 #endif
-	
 	if (h_compareResult(h_hC,h_dC,noElems) == 1){
 			printf("the two results don't match\n");
 	}
@@ -188,8 +187,11 @@ int main(int argc, char* argv[]){
 		//printf("kernel_time = %.6f\n",timeStampC - timeStampB );
 		//printf("GPU_CPU_transfer_time = %.6f\n",timeStampD - timeStampC );
 	}
-
-	cudaFreeHost(h_hC);
+	cudaFreeHost(h_A);
+	cudaFreeHost(h_B);
+	cudaFreeHost(h_dC);
+	free(h_hC);
+	cudaDeviceReset() ;
 
 }
 
