@@ -93,7 +93,7 @@ int main(int argc, char* argv[]){
 	//float *h_dC;
 	cudaHostAlloc((void**)&h_A, bytes, 0);	
 	cudaHostAlloc((void**)&h_B, bytes, 0);	
-	cudaMallocHost((void**)&h_dC, bytes);	
+	cudaHostAlloc((void**)&h_dC, bytes,0);	
 	// init matrices with random data
 	initData(h_A, noElems);
 	initData(h_B, noElems);
@@ -131,8 +131,8 @@ int main(int argc, char* argv[]){
 		if (block_x -32 > 0) block_x = block_x - 32;
 		else block_x --;
 	}
-	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
-	printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
+	//printf("the final block size is x = %d and y = %d \n",block_x, block_y);
+	//printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
 	double timeStampA = getTimeStamp() ;
 	
 	//transfer data to dev
@@ -158,9 +158,9 @@ int main(int argc, char* argv[]){
 	double timeStampC = getTimeStamp() ;
 
 	//copy data back
-	printf("before copy back\n");
+	//printf("before copy back\n");
 	cudaMemcpy( h_dC, d_C, bytes, cudaMemcpyDeviceToHost ) ;
-	printf("after copy back\n");
+	//printf("after copy back\n");
 	double timeStampD = getTimeStamp() ;
 	// free GPU resources
 	cudaFree( d_A ) ; cudaFree( d_B ) ; cudaFree( d_C ) ;

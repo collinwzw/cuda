@@ -171,8 +171,8 @@ int main(int argc, char* argv[]){
 		if (block_x -32 > 0) block_x = block_x - 32;
 		else block_x --;
 	}
-	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
-	printf("the final grid dimension is x = %d and y = %d \n",(new_nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
+	//printf("the final block size is x = %d and y = %d \n",block_x, block_y);
+	//printf("the final grid dimension is x = %d and y = %d \n",(new_nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
 	double timeStampA = getTimeStamp() ;
 	
 	//transfer data to dev
