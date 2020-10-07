@@ -163,7 +163,8 @@ int main(int argc, char* argv[]){
 			printf("the two results don't match\n");
 	}
 	else{
-		printf("totoal= %.6f CPU_GPU_transfer = %.6f kernel =%.6f GPU_CPU_transfer= %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
+		//printf("totoal= %.6f CPU_GPU_transfer = %.6f kernel =%.6f GPU_CPU_transfer= %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
+		printf("%.6f %.6f %.6f %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
 		//printf("CPU_GPU_transfer_time = %.6f\n",timeStampB - timeStampA );
 		//printf("kernel_time = %.6f\n",timeStampC - timeStampB );
 		//printf("GPU_CPU_transfer_time = %.6f\n",timeStampD - timeStampC );

@@ -3,6 +3,7 @@
 #include <sys/time.h>
 #define DEFAULT_ROW  16384
 #define DEFAULT_COL  16384
+#define offset 1
 // time stamp function in seconds
 double getTimeStamp() {
 	struct timeval tv ;
@@ -56,7 +57,7 @@ __global__ void f_addmat( float *A, float *B, float *C, int nx, int ny ){
 	int idx = iy*nx + ix ;
 	
 	if( (ix<nx) && (iy<ny) )
-	C[idx+1] = A[idx+1] + B[idx+1] ;
+	C[idx+offset] = A[idx+offset] + B[idx+offset] ;
 #ifdef DEBUG
 	if (idx == 1) printf("the addition when idenx = %d in device: %.6f + %.6f = %.6f\n",idx,A[idx],B[idx],C[idx]);
 	if (idx%10001 == 0)printf("the addition when idenx = %d in device: %.6f + %.6f = %.6f\n",idx,A[idx],B[idx],C[idx]);
@@ -109,9 +110,9 @@ int main(int argc, char* argv[]){
 
 	//alloc memeory device-side
 	float *d_A, *d_B, *d_C;
-	cudaMalloc( &d_A, bytes+sizeof(float));
-	cudaMalloc( &d_B, bytes+sizeof(float));
-	cudaMalloc( &d_C, bytes+sizeof(float));
+	cudaMalloc( &d_A, bytes+offset*sizeof(float));
+	cudaMalloc( &d_B, bytes+offset*sizeof(float));
+	cudaMalloc( &d_C, bytes+offset*sizeof(float));
 
 	double timeStampA = getTimeStamp() ;
 
@@ -125,8 +126,8 @@ int main(int argc, char* argv[]){
 	d_B_offset++;
 */	
 	//transfer data to dev
-	cudaMemcpy( (d_A+1), h_A, bytes, cudaMemcpyHostToDevice) ;
-	cudaMemcpy( (d_B+1), h_B, bytes, cudaMemcpyHostToDevice) ;
+	cudaMemcpy( (d_A+offset), h_A, bytes, cudaMemcpyHostToDevice) ;
+	cudaMemcpy( (d_B+offset), h_B, bytes, cudaMemcpyHostToDevice) ;
 	// note that the transfers would be twice as fast if h_A and h_B
 	// matrices are pinned
 	//printf("the first element of A in device is %.6f\n", *(d_A_offset));
@@ -152,7 +153,7 @@ int main(int argc, char* argv[]){
 	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
 	printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (ny + block_y-1)/block_y);
 #endif
-	dim3 block( block_x, block_y ) ; // you will want to configure this
+	dim3 block( 1024, 1) ; // you will want to configure this
 	dim3 grid( (nx + block.x-1)/block.x, (ny + block.y-1)/block.y ) ;
 	f_addmat<<<grid, block>>>( d_A, d_B, d_C, nx, ny ) ;
 
@@ -161,7 +162,7 @@ int main(int argc, char* argv[]){
 	double timeStampC = getTimeStamp() ;
 
 	//copy data back
-	cudaMemcpy( h_dC, (d_C+1), bytes, cudaMemcpyDeviceToHost ) ;
+	cudaMemcpy( h_dC, (d_C+offset), bytes, cudaMemcpyDeviceToHost ) ;
 	double timeStampD = getTimeStamp() ;
 	// free GPU resources
 	cudaFree( d_A ) ; cudaFree( d_B ) ; cudaFree( d_C ) ;
@@ -183,7 +184,8 @@ int main(int argc, char* argv[]){
 			printf("the two results don't match\n");
 	}
 	else{
-		printf("totoal= %.6f CPU_GPU_transfer = %.6f kernel =%.6f GPU_CPU_transfer= %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
+		//printf("totoal= %.6f CPU_GPU_transfer = %.6f kernel =%.6f GPU_CPU_transfer= %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
+		printf("%.6f %.6f %.6f %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, timeStampC - timeStampB, timeStampD - timeStampC  );
 		//printf("CPU_GPU_transfer_time = %.6f\n",timeStampB - timeStampA );
 		//printf("kernel_time = %.6f\n",timeStampC - timeStampB );
 		//printf("GPU_CPU_transfer_time = %.6f\n",timeStampD - timeStampC );
