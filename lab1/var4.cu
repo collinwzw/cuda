@@ -167,7 +167,7 @@ int main(int argc, char* argv[]){
 
 	// do the input argument check.
 	if(nx<=0 || ny<= 0){
-		printf("Error: input arguement can't be negative\n");
+		printf("Error: input arguement can't be zero or negative\n");
 		exit(0);
 	}
 
@@ -211,23 +211,28 @@ int main(int argc, char* argv[]){
 	cudaMalloc( &d_B, bytes);
 	cudaMalloc( &d_C, bytes);
 	
-	// host side result
+	// getting host side result
 	h_addmat( h_A, h_B, h_hC, nx, ny) ;
 
-
+	
 	int i;
+	// calculating minimum bytes each Stream should take according to the calculated block_y
+	
 	int minimumBytesPerStream = nx * sizeof(float) * 4 * block_y;	
-	while (minimumBytesPerStream < 4194304*16){
+	while (minimumBytesPerStream < 4194304*16){	// 4194304 is when 1024(thread) * 2 (blocks/SMS) * 16 (SMS) * 4 (sizeof(Float)) * 2 (Two float number required for addition), we want data transfer is multiple of this number
 		minimumBytesPerStream = minimumBytesPerStream * 2;
 	}
-	int yPerStream = minimumBytesPerStream/ nx;	// y must be mutiple of 4
-
+	// yPerStream is mutiple of 4 so every thread can process 4 different y in one stream
+	int yPerStream = minimumBytesPerStream/ nx;	
+	// calculating bytes each Stream according to the calculated yPerStream
 	int bytesPerStream = nx * sizeof(float) * yPerStream;
-
+	// calculating number of Streams according to the calculated bytesPerStream
 	int NSTREAMS = bytes/bytesPerStream;
+	// if there is data remain where they are not multiple of bytesPerStream
 	int remainBytes = bytes%bytesPerStream;
+	// initialize the stream array
 	cudaStream_t stream[NSTREAMS+1];
-
+	// input the pre-calculated block size and calculate the grid size
 	dim3 block( block_x, block_y ) ; // you will want to configure this
 	dim3 grid( (nx + block.x-1)/block.x, (bytesPerStream/(sizeof(float) * nx) + block.y-1)/block.y ) ;
 
@@ -238,27 +243,39 @@ int main(int argc, char* argv[]){
 	printf("the final block size is x = %d and y = %d \n",block_x, block_y);
 	printf("the final grid dimension is x = %d and y = %d \n",(nx + block_x-1)/block_x, (yPerStream + block.y-1)/block.y );
 #endif
-	//cudaEvent_t start, stop;
-	//cudaEventCreate(&start);
-	//cudaEventCreate(&stop);
+	// initialize the event for calculating accumulate kernel time.
+	// NOTE: if we don't need to calculating the accumulate kernel time, the total time is at least 10% faster.
+	// But  kernel time is important to show. 
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
 	double timeStampA = getTimeStamp() ;
 	double timeStampB= getTimeStamp() ;
-	//float milliseconds;
+	float milliseconds;
 	float AccumulateKernelTime = 0;
 	for(i = 1; i <=NSTREAMS; i++ ){
+		// create stream
 		cudaStreamCreate(&stream[i]);
+		//calculating offset
 		int offset = (i-1) * bytesPerStream/4;
-
+		//Asynch copy data from host to device 
 		cudaMemcpyAsync(&d_A[offset],&h_A[offset],bytesPerStream, cudaMemcpyHostToDevice, stream[i]);
 		cudaMemcpyAsync(&d_B[offset],&h_B[offset],bytesPerStream, cudaMemcpyHostToDevice, stream[i]);
-		//cudaEventRecord(start);
+		//record the timestamp before kernel invoke
+		cudaEventRecord(start);
+		//invoke kernel
 		f_addmat4<<<grid, block,0,stream[i]>>>( &d_A[offset], &d_B[offset], &d_C[offset], nx, bytesPerStream/(4* sizeof(float) * nx), bytesPerStream/(4* sizeof(float)) ) ;
-		//cudaEventRecord(stop);	
-		//cudaEventSynchronize(stop);
-		//cudaEventElapsedTime(&milliseconds, start, stop);
-		//AccumulateKernelTime += milliseconds/1000;
+		//record the timestamp before kernel invoke		
+		cudaEventRecord(stop);	
+		cudaEventSynchronize(stop);
+		// write down the difference
+		cudaEventElapsedTime(&milliseconds, start, stop);
+		// add this time to accumulated time
+		AccumulateKernelTime += milliseconds/1000;
+		//Asynch copy data from device back to host 
 		cudaMemcpyAsync(&h_dC[offset],&d_C[offset],bytesPerStream, cudaMemcpyDeviceToHost,stream[i]);
 	}
+	// if there is remaining byte, we do the process one more time
 	if(remainBytes != 0){
 		int remainEle = remainBytes/4;
 		cudaStream_t last;
@@ -266,26 +283,27 @@ int main(int argc, char* argv[]){
 		int offset = NSTREAMS * bytesPerStream/4;
 		cudaMemcpyAsync(&d_A[offset],&h_A[offset],remainBytes, cudaMemcpyHostToDevice, last);
 		cudaMemcpyAsync(&d_B[offset],&h_B[offset],remainBytes, cudaMemcpyHostToDevice, last);
-
 		dim3 grid( (nx + block.x-1)/block.x, (remainEle/nx + block.y-1)/block.y ) ;
-		//cudaEventRecord(start);
+		cudaEventRecord(start);
 		f_addmat<<<grid, block,0,last>>>( &d_A[offset], &d_B[offset], &d_C[offset], nx, remainEle/nx ) ;
-		//cudaEventRecord(stop);	
-		//cudaEventElapsedTime(&milliseconds, start, stop);
-		//AccumulateKernelTime += milliseconds/1000;
+		cudaEventRecord(stop);	
+		cudaEventElapsedTime(&milliseconds, start, stop);
+		AccumulateKernelTime += milliseconds/1000;
 		cudaMemcpyAsync(&h_dC[offset],&d_C[offset],remainBytes, cudaMemcpyDeviceToHost,last);
 		cudaStreamSynchronize(last);
 	}
+
 	double timeStampC = getTimeStamp() ;
+	//wait for all stream finish the job
 	for(i = 1; i <=NSTREAMS; i++ ){
 		cudaStreamSynchronize(stream[i]);
 	}
-
+	
 	cudaDeviceSynchronize() ;
-
+	//time where device side jobs have been finished
 	double timeStampD = getTimeStamp() ;
 
-	// free GPU resources
+	// free some Host and GPU resources that are not needed anymore
 	cudaFreeHost(h_A);
 	cudaFreeHost(h_B);
 	cudaFree( d_A ) ; cudaFree( d_B ) ; cudaFree( d_C ) ;
@@ -297,15 +315,17 @@ int main(int argc, char* argv[]){
 	n = 0;
 	ptr = ptr + n;
 	printf("the data of GPU at index %d before comparison is %.6f\n", n,*(ptr));
-#endif
+#endif	
+	//h_compareResult compares the result computed by host and result computed by device
+	//if any element is not same, the function will return 1, otherwise print out the time 
 	if (h_compareResult(h_hC,h_dC,noElems) == 1){
-			printf("the two results don't match\n");
+			printf("Error: the two results don't match\n");
 	}
 	else{
 		//printf(" %.6f  %.6f %.6f %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, AccumulateKernelTime, timeStampD - timeStampC  );
 		printf(" %.6f  %.6f %.6f %.6f\n",timeStampD - timeStampA,timeStampB - timeStampA, AccumulateKernelTime, timeStampD - timeStampC  );
 	}
-
+	// free rest Host Side Resources
 	cudaFreeHost(h_dC);
 	free(h_hC);
 	cudaDeviceReset();
