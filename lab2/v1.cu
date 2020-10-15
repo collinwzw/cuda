@@ -57,7 +57,7 @@ __global__ void f_addmat( float *A, float *B, float *C, int nx, int ny ){
 	//printf("the addition at idx = %d in device: %.6f + %.6f = %.6f\n",idx, A[idx],B[idx],C[idx]);
 }
 */
-void initData(float* add, int noElems){
+void initData(float* add, int n){
     for (int iz =0; iz<n; iz++){
         for (int iy =0; iy<n; iy++){
             for (int ix =0; ix<n; ix++){
@@ -86,12 +86,6 @@ int main(int argc, char* argv[]){
 
 	int noElems = n * n * n;
 	int bytes = noElems * sizeof(float);
-#ifdef DEBUG
-	printf("the input row # is %d\n",nx);
-	printf("the input col # is %d\n",ny);
-	printf("the noElems is %d\n",noElems);
-	printf("the bytes is %d\n",bytes);
-#endif
 
 
 
@@ -105,7 +99,7 @@ int main(int argc, char* argv[]){
 
 	
 	// init matrices with random data
-	initData(h_B, noElems);
+	initData(h_B, n);
 	
 	//alloc memeory device-side
 	//float *d_A, *d_B, *d_C;
@@ -113,7 +107,7 @@ int main(int argc, char* argv[]){
 	//cudaMalloc( &d_B, bytes);
 	
 	// getting host side result
-    h_compute_result( h_A, h_B, h_hC, nx, ny) ;
+    h_compute_result( h_A, h_B, n) ;
 
 /*
 	int i;
