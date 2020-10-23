@@ -5,59 +5,67 @@
 
 // time stamp function in seconds
 double getTimeStamp() {
-	struct timeval tv ;
-	gettimeofday( &tv, NULL ) ;
-	return (double) tv.tv_usec/1000000 + tv.tv_sec ;
+    struct timeval tv ;
+    gettimeofday( &tv, NULL ) ;
+    return (double) tv.tv_usec/1000000 + tv.tv_sec ;
 }
 // host side matrix calculation
 void h_compute_result(float *A, float *B, int n){
-	float* ia = A, *ib =B,
+	float* ia = A, *ib =B;
 
 	for (int iz =1; iz<n-1; iz++){
 		for (int iy =1; iy<n-1; iy++){
             for (int ix =1; ix<n-1; ix++){
-			ia[iz*(n)*(n) + iy * (n) + ix] = 0.8 * (ib[iz*(n)*(n) + iy * (n) + ix - 1] + ib[iz*(n)*(n) + iy * (n) + ix +1] +
-                                                    ib[iz*(n)*(n) + (iy-1) * (n) + ix] + ib[iz*(n)*(n) + (iy+1) * (n) + ix]
-                                                    ib[(iz*(n)*(n)-1) + iy * (n) + ix] + ib[(iz*(n)*(n)+1) + (iy+1) * (n) + ix]);
+			ia[iz*(n)*(n) + iy * (n) + ix] = 0.8 * (ib[iz*(n)*(n) + iy * n + ix + 1] + ib[iz*(n)*(n) + iy * n + ix - 1] +
+                                                    ib[iz*(n)*(n) + (iy + 1) * n + ix] + ib[iz*(n)*(n) + (iy - 1) * n + ix] +
+                                                    ib[(iz + 1)*(n)*(n) + iy * n + ix] + ib[(iz - 1)*(n)*(n) + iy * n + ix]);
+
+
 		}
 	}
  }
 }
 
 //host side matrix comparison
-/*
-int h_compareResult(float *h_C, float *d_C, int noElems){ 
-	float *host_c = h_C,*device_c = d_C;
+
+int h_compareResult(float *h_A, float *d_A, int noElems){
+	float *host_a = h_A,*device_a = d_A;
 	for (int i =0; i<noElems; i++){
-		if (*(host_c) != *(device_c)){
+		if (*(host_a) != *(device_a)){
 #ifdef DEBUG
 
 			printf("the i = %d\n", i);
-			printf("the data of CPU is %.6f\n", *(host_c));
-			printf("the data of GPU is %.6f\n", *(device_c));
+			printf("the data of CPU is %.6f\n", *(host_a));
+			printf("the data of GPU is %.6f\n", *(device_a));
 
 #endif
 			return 1;
-		} 
-		host_c++;
-		device_c++;
+		}
+        host_a++;
+        device_a++;
 	}
 	return 0;
  }
 
 // device-side matrix addition
-__global__ void f_addmat( float *A, float *B, float *C, int nx, int ny ){
+__global__ void f_jocobiRelaxation( float *A, float *B, int n ){
 	// kernel code might look something like this
 	// but you may want to pad the matrices and index into them accordingly
-	int ix = threadIdx.x + blockIdx.x*blockDim.x ;
-	int iy = threadIdx.y + blockIdx.y*blockDim.y ;
-	int idx = iy*nx + ix ;
-	if( (ix<nx) && (iy<ny) )
-	C[idx] = A[idx] + B[idx] ;
-	//printf("the addition at idx = %d in device: %.6f + %.6f = %.6f\n",idx, A[idx],B[idx],C[idx]);
+    int ix = blockIdx.x*blockDim.x + threadIdx.x;
+    int iy = blockIdx.y*blockDim.y + threadIdx.y;
+    int iz = blockIdx.z*blockDim.z + threadIdx.z;
+	int idx = iz*n*n + iy*n + ix ;
+	if( (ix<n-1) && (iy<n-1) && (iz<n-1) &&(ix>=1) && (iy>=1) && (iz>=1)){
+
+        A[idx] =0.8 * ( B[idx+1] + B[idx - 1] + B[idx + n] + B[idx - n] + B[idx + n * n] + B[idx - n * n] );
+#ifdef DEBUG
+        printf("the addition at idx = %d in device: %.6f \n",idx, A[idx]);
+        //if (idx == 111) printf("the addition at idx = %d in device: %.6f \n",idx, A[idx]);
+#endif
+	}
 }
-*/
-void initData(float* add, int n){
+
+void initDataB(float* ib, int n){
     for (int iz =0; iz<n; iz++){
         for (int iy =0; iy<n; iy++){
             for (int ix =0; ix<n; ix++){
@@ -66,7 +74,18 @@ void initData(float* add, int n){
         }
     }
 }
-
+void initDataA(float* ia, int noElem){
+    for (int i=0; i<noElem; i++) {
+        ia[i] = 0;
+    }
+}
+float SumDataA(float* ia, int noElem){
+    float r = 0;
+    for (int i=0; i<noElem; i++) {
+        r += ia[i]/10000;
+    }
+    return r;
+}
 
 int main(int argc, char* argv[]){
 
@@ -86,35 +105,78 @@ int main(int argc, char* argv[]){
 
 	int noElems = n * n * n;
 	int bytes = noElems * sizeof(float);
-
+    printf("number of element is %d \n", noElems);
 
 
 	// alloc memeory host-side
-	float *h_A;
-	float *h_B = (float*) malloc(bytes); // host result
-	
-	//pin memeory in host side
-	//cudaHostAlloc((void**)&h_A, bytes, 0);
-	//cudaHostAlloc((void**)&h_B, bytes, 0);
+	float *h_hA  = (float*) malloc(bytes); // host result
 
-	
+
+	float *h_B; // host result
+    float *h_dA;
+
+	//pin memory in host side
+	cudaHostAlloc((void**)&h_B, bytes, 0);
+    cudaHostAlloc((void**)&h_dA, bytes, 0);
+
 	// init matrices with random data
-	initData(h_B, n);
-	
-	//alloc memeory device-side
-	//float *d_A, *d_B, *d_C;
-	//cudaMalloc( &d_A, bytes);
-	//cudaMalloc( &d_B, bytes);
-	
-	// getting host side result
-    h_compute_result( h_A, h_B, n) ;
+    initDataA(h_hA, noElems);
+    initDataA(h_dA, noElems);
+    initDataB(h_B, n);
+	//alloc memory device-side
+	float *d_A, *d_B;
+	cudaMalloc( &d_A, bytes);
+	cudaMalloc( &d_B, bytes);
+
+    double timeStampA = getTimeStamp() ;
+
+    // getting host side result
+    h_compute_result( h_hA, h_B, n) ;
+
+    double timeStampB = getTimeStamp() ;
+
+
+
+
+
+    double timeStampC = getTimeStamp() ;
+    cudaMemcpy( d_B, h_B, bytes, cudaMemcpyHostToDevice) ;
+    double timeStampD = getTimeStamp() ;
+
+    // invoke Kernel
+    dim3 block( 32, 1, 32) ; // you will want to configure this
+    dim3 grid( (n + block.x-1)/block.x, (n + block.y-1)/block.y, (n+ block.z-1)/block.z ) ;
+    f_jocobiRelaxation<<<grid, block>>>( d_A, d_B, n);
+    cudaDeviceSynchronize() ;
+    double timeStampE = getTimeStamp() ;
+
+
+    //copy data back
+    cudaMemcpy( h_dA, d_A, bytes, cudaMemcpyDeviceToHost ) ;
+    double timeStampF = getTimeStamp() ;
+    printf("time taken for cpu calculation = %lf s. \n",(timeStampB - timeStampA) );
+    printf("time taken for memory transfer = %lf ms \n",(timeStampD - timeStampC)*1000  );
+    printf("time taken for kernel = %lf ms. \n",(timeStampE - timeStampD)*1000   );
+    printf("time taken for copy data back to host = %lf ms. \n",(timeStampF - timeStampE)*1000   );
+    printf("Total time taken for GPU = %lf ms. \n",(timeStampF - timeStampC)*1000   );
+    if (h_compareResult(h_hA, h_dA, noElems) == 1){
+        printf("Error: the two results don't match\n");
+    }
+    else{
+        printf("the result match\n");
+    }
+    cudaFree( d_A ) ; cudaFree( d_B );
+    cudaFreeHost(h_B);
+    cudaFreeHost(h_dA);
+    cudaDeviceReset() ;
+    free(h_hA);
 
 /*
 	int i;
 	// calculating minimum bytes each Stream should take according to the calculated block_y
 	
 	int minimumBytesPerStream = nx * sizeof(float) * 4 * block_y;	
-	while (minimumBytesPerStream < 4194304*16){	// 4194304 is when 1024(thread) * 2 (blocks/SMS) * 16 (SMS) * 4 (sizeof(Float)) * 2 (Two float number required for addition), we want data transfer is multiple of this number
+	while (minimumBytesPerStream < 4194304*16){	// 4194304 is when 1024(thread) * 2 (blocks/SMS) * 16 (SMS) * 4 (sizeof(float)) * 2 (Two float number required for addition), we want data transfer is multiple of this number
 		minimumBytesPerStream = minimumBytesPerStream * 2;
 	}
 	// yPerStream is mutiple of 4 so every thread can process 4 different y in one stream
@@ -144,8 +206,8 @@ int main(int argc, char* argv[]){
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
-	double timeStampA = getTimeStamp() ;
-	double timeStampB= getTimeStamp() ;
+	float timeStampA = getTimeStamp() ;
+	float timeStampB= getTimeStamp() ;
 	float milliseconds;
 	float AccumulateKernelTime = 0;
 	for(i = 1; i <=NSTREAMS; i++ ){
@@ -188,7 +250,7 @@ int main(int argc, char* argv[]){
 		cudaStreamSynchronize(last);
 	}
 
-	double timeStampC = getTimeStamp() ;
+	float timeStampC = getTimeStamp() ;
 	//wait for all stream finish the job
 	for(i = 1; i <=NSTREAMS; i++ ){
 		cudaStreamSynchronize(stream[i]);
@@ -196,7 +258,7 @@ int main(int argc, char* argv[]){
 	
 	cudaDeviceSynchronize() ;
 	//time where device side jobs have been finished
-	double timeStampD = getTimeStamp() ;
+	float timeStampD = getTimeStamp() ;
 
 	// free some Host and GPU resources that are not needed anymore
 	cudaFreeHost(h_A);

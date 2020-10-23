@@ -2,3 +2,5 @@
 cmake-build-debug
 CMakeLists.txt
 main.c
+.metadata
+RemoteSystemTempFiles
